@@ -10,11 +10,14 @@ Output record: {pkg, fpath, input, gt}
 import json, argparse, os
 from pathlib import Path
 
+ROOT_DIR = Path(__file__).resolve().parent.parent
+CCE_DIR = ROOT_DIR / "datasets" / "CrossCodeEval"
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--src", default="/home/ura/Desktop/DraCo/datasets/CrossCodeEval/python/line_completion.jsonl")
-    ap.add_argument("--dst", default="/home/ura/Desktop/DraCo/datasets/CrossCodeEval/draco_line_metadata.jsonl")
-    ap.add_argument("--repo_root", default="/home/ura/Desktop/DraCo/datasets/CrossCodeEval/repositories")
+    ap.add_argument("--src", default=str(CCE_DIR / "python" / "line_completion.jsonl"))
+    ap.add_argument("--dst", default=str(CCE_DIR / "draco_line_metadata.jsonl"))
+    ap.add_argument("--repo_root", default=str(CCE_DIR / "repositories"))
     args = ap.parse_args()
 
     repo_root = Path(args.repo_root)

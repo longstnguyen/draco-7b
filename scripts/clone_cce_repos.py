@@ -8,13 +8,16 @@ import json, os, re, subprocess, sys, time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-CCE_DIR = Path("/home/ura/Desktop/DraCo/datasets/CrossCodeEval")
+# Resolve repo paths relative to this script (works on any machine).
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = SCRIPT_DIR.parent
+CCE_DIR = Path(os.environ.get("CCE_DIR", ROOT_DIR / "datasets" / "CrossCodeEval"))
 META = CCE_DIR / "python" / "line_completion.jsonl"
 LICENSE_MAP = CCE_DIR / "LICENSES" / "project_license_map.txt"
 REPO_DIR = CCE_DIR / "repositories"
 LOG_DIR = CCE_DIR / "clone_logs"
-REPO_DIR.mkdir(exist_ok=True)
-LOG_DIR.mkdir(exist_ok=True)
+REPO_DIR.mkdir(parents=True, exist_ok=True)
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 # Build owner/repo set from license file
 owner_repo_set = []
