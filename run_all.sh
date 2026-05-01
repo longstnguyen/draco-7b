@@ -7,21 +7,14 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${ROOT_DIR}"
 
-ENV_NAME="${ENV_NAME:-draco}"
-
 echo "============================================================"
 echo " DraCo end-to-end reproduction (DeepSeek-Coder-6.7B-base)"
 echo "============================================================"
 
-# 1) Conda env
+# 1) Install python deps into current python (no conda)
 bash scripts/setup_env.sh
 
-# Activate env in this script
-CONDA_BASE="$(conda info --base)"
-# shellcheck disable=SC1091
-source "${CONDA_BASE}/etc/profile.d/conda.sh"
-conda activate "${ENV_NAME}"
-export PYBIN="$(which python)"
+export PYBIN="${PYBIN:-$(command -v python3)}"
 echo "[run_all] Using PYBIN=${PYBIN}"
 
 # 2) Data

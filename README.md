@@ -16,7 +16,7 @@ bash run_all.sh
 
 `run_all.sh` will:
 
-1. Create conda env `draco` (Python 3.10) and install dependencies (PyTorch 2.4 + CUDA 12.1, transformers, tree-sitter, etc.).
+1. Install Python dependencies into the current `python3` env (no conda; PyTorch 2.4 + CUDA 12.1, transformers, tree-sitter, etc.).
 2. Download 3 datasets:
    - **RepoEval** (line/api/function, 16 repos)
    - **ReccEval** (paper-shipped, full source code archive)
@@ -43,7 +43,7 @@ Output predictions live under `experiments/preds_*.json`. Logs under `experiment
 If you don't want the full pipeline, run each stage individually:
 
 ```bash
-bash scripts/setup_env.sh         # conda env
+bash scripts/setup_env.sh         # install python deps into current python (no conda)
 bash scripts/download_data.sh     # all 3 datasets + CCE repo clones
 bash scripts/prepare_data.sh      # convert to draco fmt + build graphs
 bash scripts/run_eval.sh          # eval all 3 with DS-Coder-6.7B
