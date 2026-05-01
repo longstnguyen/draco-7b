@@ -52,7 +52,7 @@ def build_prompts(model_name: str, ds_file: str):
 
 
 def run_hf(items, model_repo: str, max_new_tokens: int = 48,
-           batch_size: int = 4):
+           batch_size: int = 4, ckpt_path: str = None):
     import torch
     from transformers import AutoTokenizer, AutoModelForCausalLM
     print(f"[+] Loading HF model {model_repo} ...")
@@ -79,10 +79,29 @@ def run_hf(items, model_repo: str, max_new_tokens: int = 48,
     prompts = [it["prompt"] for it in items]
     # Defensive: coerce any non-str (None / dict) to empty string to avoid tokenizer crash
     prompts = [p if isinstance(p, str) else "" for p in prompts]
+
+    # Resume support: load any previously-completed gens from ckpt_path
     gens = []
+    if ckpt_path and os.path.isfile(ckpt_path):
+        with open(ckpt_path) as f:
+            for line in f:
+                try:
+                    gens.append(json.loads(line)["raw"])
+                except Exception:
+                    break
+        if len(gens) > len(prompts):
+            gens = gens[:len(prompts)]
+        print(f"[+] Resume: loaded {len(gens)}/{len(prompts)} gens from {ckpt_path}")
+    start_i = len(gens)
+    ckpt_f = open(ckpt_path, "a") if ckpt_path else None
+
     t0 = time.time()
     max_in_len = int(os.environ.get("MAX_INPUT_LEN", 4096))
-    for i in tqdm(range(0, len(prompts), batch_size), desc="infer", unit="batch"):
+    total_batches = (len(prompts) + batch_size - 1) // batch_size
+    done_batches = start_i // batch_size
+    pbar = tqdm(range(start_i, len(prompts), batch_size), desc="infer", unit="batch",
+                initial=done_batches, total=total_batches)
+    for i in pbar:
         batch = prompts[i:i + batch_size]
         enc = tok(batch, return_tensors="pt", padding=True, truncation=True,
                   max_length=max_in_len - max_new_tokens).to(model.device)
@@ -101,6 +120,12 @@ def run_hf(items, model_repo: str, max_new_tokens: int = 48,
         for j, ids in enumerate(new_tokens):
             text = tok.decode(ids, skip_special_tokens=True)
             gens.append(text)
+            if ckpt_f is not None:
+                ckpt_f.write(json.dumps({"raw": text, "gt": items[i + j]["gt"]}) + "\n")
+        if ckpt_f is not None:
+            ckpt_f.flush()
+    if ckpt_f is not None:
+        ckpt_f.close()
     print(f"[+] Inference done in {time.time()-t0:.1f}s")
     return gens
 
@@ -170,20 +195,21 @@ def main():
                 f.write(json.dumps(it) + "\n")
         print(f"[+] Wrote prompts to {prompts_path}")
 
+    raw_path = args.out + ".raw.jsonl"
     gens = (
         run_hf(items, args.model_repo, max_new_tokens=args.max_new_tokens,
-               batch_size=args.batch_size)
+               batch_size=args.batch_size, ckpt_path=raw_path)
         if args.engine == "hf"
         else run_vllm(items, args.model_repo,
                       max_new_tokens=args.max_new_tokens,
                       tp=args.tp, gpu_mem_util=args.gpu_mem_util)
     )
 
-    # Save raw generations for re-processing later
-    raw_path = args.out + ".raw.jsonl"
-    with open(raw_path, "w") as f:
-        for it, g in zip(items, gens):
-            f.write(json.dumps({"raw": g, "gt": it["gt"]}) + "\n")
+    # For vLLM (no incremental ckpt), still save raw gens at the end
+    if args.engine != "hf":
+        with open(raw_path, "w") as f:
+            for it, g in zip(items, gens):
+                f.write(json.dumps({"raw": g, "gt": it["gt"]}) + "\n")
     print(f"[+] Wrote raw gens to {raw_path}")
 
     # Match number of lines in GT (line task -> 1 line, api/function -> N lines)

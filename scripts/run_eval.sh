@@ -43,6 +43,7 @@ run_one() {
             --engine hf \
             --batch_size "${BATCH_SIZE}" \
             --max_new_tokens "${MAX_NEW_TOKENS}" \
+            --reuse_prompts \
             2>&1 | tee "${log}"
 }
 
