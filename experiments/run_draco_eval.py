@@ -86,6 +86,8 @@ def run_hf(items, model_repo: str, max_new_tokens: int = 48,
         batch = prompts[i:i + batch_size]
         enc = tok(batch, return_tensors="pt", padding=True, truncation=True,
                   max_length=max_in_len - max_new_tokens).to(model.device)
+        # Some tokenizers (e.g. DeepSeek) emit token_type_ids that the causal LM doesn't accept
+        enc.pop("token_type_ids", None)
         with torch.inference_mode():
             out = model.generate(
                 **enc,
