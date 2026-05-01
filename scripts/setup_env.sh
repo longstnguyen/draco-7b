@@ -11,9 +11,36 @@ echo "[setup] Using PYBIN=${PYBIN}"
 "${PYBIN}" -m ensurepip --upgrade 2>/dev/null || true
 "${PYBIN}" -m pip install --upgrade pip
 
-echo "[setup] Installing PyTorch 2.4.0 + CUDA 12.1 wheels ..."
-"${PYBIN}" -m pip install --index-url https://download.pytorch.org/whl/cu121 \
-    torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0
+echo "[setup] Installing PyTorch ..."
+# Detect GPU compute capability. Blackwell (sm_120, e.g. RTX PRO 6000 Blackwell)
+# requires PyTorch built against CUDA >=12.8. Default to cu121 stable for older GPUs.
+TORCH_CHANNEL="${TORCH_CHANNEL:-auto}"
+if [[ "${TORCH_CHANNEL}" == "auto" ]]; then
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        CC=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d '. ' || true)
+        if [[ -n "${CC}" && "${CC}" -ge 100 ]]; then
+            TORCH_CHANNEL="cu128"
+        else
+            TORCH_CHANNEL="cu121"
+        fi
+    else
+        TORCH_CHANNEL="cu121"
+    fi
+fi
+echo "[setup] TORCH_CHANNEL=${TORCH_CHANNEL}"
+case "${TORCH_CHANNEL}" in
+    cu128)
+        # PyTorch 2.6+ stable supports cu128 (Blackwell sm_120).
+        "${PYBIN}" -m pip install --index-url https://download.pytorch.org/whl/cu128 \
+            torch torchvision torchaudio
+        ;;
+    cu121)
+        "${PYBIN}" -m pip install --index-url https://download.pytorch.org/whl/cu121 \
+            torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0
+        ;;
+    *)
+        echo "[setup] Unknown TORCH_CHANNEL=${TORCH_CHANNEL}" >&2; exit 1 ;;
+esac
 
 echo "[setup] Installing other Python deps ..."
 "${PYBIN}" -m pip install --upgrade \

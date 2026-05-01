@@ -44,6 +44,8 @@ def build_prompts(model_name: str, ds_file: str):
         except Exception as e:
             tqdm.write(f"  [!] sample {i} ({item['fpath']}) failed: {e!r}")
             prompt = item["input"]  # fallback: just the program prefix
+        if not isinstance(prompt, str) or len(prompt) == 0:
+            prompt = item["input"] if isinstance(item.get("input"), str) else ""
         items.append({"prompt": prompt, "gt": item["gt"]})
     print(f"[+] Built prompts in {time.time()-t0:.1f}s")
     return items
@@ -75,6 +77,8 @@ def run_hf(items, model_repo: str, max_new_tokens: int = 48,
     model.eval()
 
     prompts = [it["prompt"] for it in items]
+    # Defensive: coerce any non-str (None / dict) to empty string to avoid tokenizer crash
+    prompts = [p if isinstance(p, str) else "" for p in prompts]
     gens = []
     t0 = time.time()
     max_in_len = int(os.environ.get("MAX_INPUT_LEN", 4096))
