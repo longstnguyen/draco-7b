@@ -1,9 +1,23 @@
 import os
 import re
 import json
+import multiprocessing as mp
 from pyfile_parse import PythonParser
 from node_prompt import projectSearcher
 from utils import DS_REPO_DIR, DS_FILE, DS_GRAPH_DIR
+
+
+def _parse_one(args):
+    """Worker function for parallel repo parsing (must be top-level for spawn)."""
+    name, dpath = args
+    try:
+        parser = projectParser()
+        info = parser.parse_dir(dpath)
+        with open(os.path.join(DS_GRAPH_DIR, f'{name}.json'), 'w') as f:
+            json.dump(info, f)
+        return name, True, None
+    except Exception as e:
+        return name, False, repr(e)
 
 
 class projectParser(object):
@@ -188,29 +202,42 @@ if __name__ == '__main__':
     pkg_set = set([x['pkg'] for x in ds])
     print(f'There are {len(pkg_set)} repositories in ReccEval.')
 
-    project_parser = projectParser()
-
     if not os.path.isdir(DS_GRAPH_DIR):
         os.mkdir(DS_GRAPH_DIR)
 
+    # Build (pkg_name, dir_path) tasks for repos that need processing
+    tasks = []
     for item in os.listdir(DS_REPO_DIR):
         if item not in pkg_set:
             continue
         if os.path.isfile(os.path.join(DS_GRAPH_DIR, f'{item}.json')):
             continue
-        
         dir_path = os.path.join(DS_REPO_DIR, item)
-        if os.path.isdir(dir_path):
-            
-            content = list(os.listdir(dir_path))
-            if len(content) > 1:
-                info = project_parser.parse_dir(dir_path)
-            else:
-                # package/package-version/
-                dist_path = os.path.join(dir_path, content[0])
-                info = project_parser.parse_dir(dist_path)
+        if not os.path.isdir(dir_path):
+            continue
+        content = list(os.listdir(dir_path))
+        if len(content) == 1:
+            dir_path = os.path.join(dir_path, content[0])
+        tasks.append((item, dir_path))
 
-            with open(os.path.join(DS_GRAPH_DIR, f'{item}.json'), 'w') as f:
-                json.dump(info, f)
-    
+    workers = int(os.environ.get('DRACO_WORKERS', max(1, (os.cpu_count() or 1) - 1)))
+    print(f'[preprocess] {len(tasks)} repos to parse with {workers} worker(s).')
+
+    if workers > 1 and len(tasks) > 1:
+        with mp.get_context('spawn').Pool(workers) as pool:
+            done = 0
+            for name, ok, err in pool.imap_unordered(_parse_one, tasks):
+                done += 1
+                if ok:
+                    print(f'[preprocess] [{done}/{len(tasks)}] {name}')
+                else:
+                    print(f'[preprocess] [{done}/{len(tasks)}] {name} FAILED: {err}')
+    else:
+        for i, t in enumerate(tasks, 1):
+            name, ok, err = _parse_one(t)
+            if ok:
+                print(f'[preprocess] [{i}/{len(tasks)}] {name}')
+            else:
+                print(f'[preprocess] [{i}/{len(tasks)}] {name} FAILED: {err}')
+
     print(f'Generate repo-specific context graph for {len(os.listdir(DS_GRAPH_DIR))} repositories.')
