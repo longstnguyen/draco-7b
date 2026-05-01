@@ -47,15 +47,43 @@ normalize_single_top_dir() {
 
 # ---------------- 1) RepoEval ----------------
 RE_DIR="${DATASETS_DIR}/RepoEval"
-if [[ ! -d "${RE_DIR}/repositories" ]]; then
-    mkdir -p "${RE_DIR}"
+mkdir -p "${RE_DIR}"
+# (a) test jsonls
+if [[ ! -f "${RE_DIR}/line_level_completion_2k_context_codex.test.jsonl" ]]; then
     download "https://raw.githubusercontent.com/microsoft/CodeT/main/RepoCoder/datasets/datasets.zip" \
              "${RE_DIR}/datasets.zip"
     extract "${RE_DIR}/datasets.zip" "${RE_DIR}"
     normalize_single_top_dir "${RE_DIR}"
     rm -f "${RE_DIR}/datasets.zip"
 fi
-echo "[data] RepoEval ready at ${RE_DIR}"
+# (b) source repositories (line/api/function level)
+RE_REPO_DIR="${RE_DIR}/repositories"
+mkdir -p "${RE_REPO_DIR}"
+need_repos=0
+for z in line_and_api_level function_level; do
+    if [[ ! -f "${RE_REPO_DIR}/.${z}.done" ]]; then
+        need_repos=1
+        download "https://raw.githubusercontent.com/microsoft/CodeT/main/RepoCoder/repositories/${z}.zip" \
+                 "${RE_REPO_DIR}/${z}.zip"
+        extract "${RE_REPO_DIR}/${z}.zip" "${RE_REPO_DIR}"
+        # If extraction produced a single top-level dir, flatten it into repositories/
+        mapfile -t entries < <(find "${RE_REPO_DIR}" -mindepth 1 -maxdepth 1 -type d ! -name '.*')
+        if [[ "${#entries[@]}" -eq 1 ]]; then
+            inner="${entries[0]}"
+            # Only flatten if inner contains repo dirs (heuristic: >1 subdir)
+            sub_count=$(find "${inner}" -mindepth 1 -maxdepth 1 -type d | wc -l)
+            if [[ "${sub_count}" -gt 1 ]]; then
+                shopt -s dotglob nullglob
+                for f in "${inner}"/*; do mv "${f}" "${RE_REPO_DIR}/"; done
+                shopt -u dotglob nullglob
+                rmdir "${inner}" || true
+            fi
+        fi
+        rm -f "${RE_REPO_DIR}/${z}.zip"
+        touch "${RE_REPO_DIR}/.${z}.done"
+    fi
+done
+echo "[data] RepoEval ready at ${RE_DIR} ($(ls -1 "${RE_REPO_DIR}" | grep -v '^\.' | wc -l) repos)"
 
 # ---------------- 2) ReccEval ----------------
 REC_DIR="${DATASETS_DIR}/ReccEval"
