@@ -1,13 +1,16 @@
-"""Convert RepoEval *_completion.jsonl -> DraCo's ReccEval-format metadata.jsonl.
+"""Convert RepoEval (RepoCoder) test jsonl -> DraCo metadata format.
+
+Supports two source formats:
+  (A) Raw RepoCoder: {prompt, metadata: {fpath_tuple, ground_truth, ...}}
+  (B) Pre-processed: {full_left_context, groundtruth, metadata: {filepath, ...}}
 
 Output records: {pkg, fpath, input, gt}
-- pkg = first segment of metadata.filepath (the repo dir name, matches datasets/RepoEval/repositories/<pkg>)
-- fpath = metadata.filepath (relative path from datasets/RepoEval/repositories/)
-- input = full_left_context (file content up to the line to predict, exclusive)
-- gt = groundtruth
+- pkg = first segment of fpath
+- fpath = relative path from datasets/RepoEval/repositories/
+- input = left context up to the line to predict
+- gt = ground truth (single or multi-line)
 """
-import json
-import argparse
+import json, argparse
 
 
 def main():
@@ -21,14 +24,18 @@ def main():
         for line in f:
             x = json.loads(line)
             md = x["metadata"]
-            fpath = md["filepath"]
+            if "fpath_tuple" in md:
+                # Format A (raw RepoCoder)
+                fpath = "/".join(md["fpath_tuple"])
+                gt = md["ground_truth"]
+                inp = x["prompt"]
+            else:
+                # Format B (pre-processed)
+                fpath = md["filepath"]
+                gt = x["groundtruth"]
+                inp = x["full_left_context"]
             pkg = fpath.split("/", 1)[0]
-            out.append({
-                "pkg": pkg,
-                "fpath": fpath,
-                "input": x["full_left_context"],
-                "gt": x["groundtruth"],
-            })
+            out.append({"pkg": pkg, "fpath": fpath, "input": inp, "gt": gt})
     with open(args.dst, "w") as f:
         for r in out:
             f.write(json.dumps(r) + "\n")

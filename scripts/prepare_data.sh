@@ -9,9 +9,16 @@ PYBIN="${PYBIN:-python}"
 cd "${ROOT_DIR}"
 
 # ---------------- 1) RepoEval (3 splits: line/api/function) ----------------
+# Source files come from RepoCoder datasets.zip extracted at datasets/RepoEval/.
+# The 2k_context_codex variants match the splits used in DraCo / ACAR papers.
 RE_DIR="${DATASETS_DIR}/RepoEval"
+declare -A RE_SRC=(
+    [line]="${RE_DIR}/line_level_completion_2k_context_codex.test.jsonl"
+    [api]="${RE_DIR}/api_level_completion_2k_context_codex.test.jsonl"
+    [function]="${RE_DIR}/function_level_completion_2k_context_codex.test.jsonl"
+)
 for split in line api function; do
-    SRC="${RE_DIR}/datasets/${split}_level/${split}_completion.jsonl"
+    SRC="${RE_SRC[$split]}"
     DST="${RE_DIR}/draco_${split}_metadata.jsonl"
     if [[ -f "${SRC}" && ! -f "${DST}" ]]; then
         echo "[prep] Converting RepoEval ${split} ..."
