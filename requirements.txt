@@ -1,6 +1,6 @@
 # Core DraCo deps
-tree-sitter==0.21.3
-tree-sitter-python==0.21.0
+tree-sitter>=0.23,<0.24
+tree-sitter-python>=0.23,<0.24
 tiktoken
 attridict
 pyyaml

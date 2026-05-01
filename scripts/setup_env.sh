@@ -16,13 +16,13 @@ echo "[setup] Installing PyTorch 2.4.0 + CUDA 12.1 wheels ..."
     torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0
 
 echo "[setup] Installing other Python deps ..."
-"${PYBIN}" -m pip install \
+"${PYBIN}" -m pip install --upgrade \
     "transformers>=4.45,<5.0" \
     "huggingface_hub>=0.24" \
     "tokenizers>=0.20" \
     "accelerate>=0.34" \
-    tree-sitter==0.21.3 \
-    tree-sitter-python==0.21.0 \
+    "tree-sitter>=0.23,<0.24" \
+    "tree-sitter-python>=0.23,<0.24" \
     tiktoken \
     attridict \
     pyyaml \
