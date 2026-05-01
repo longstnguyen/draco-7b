@@ -1,3 +1,33 @@
+# Datasets (downloaded by scripts/download_data.sh)
+datasets/
+downloaded_data/
 ReccEval/Graph
 ReccEval/Source_Code
-**/__pycache__
+
+# Eval outputs / logs
+experiments/preds_*.json
+experiments/preds_*.jsonl
+experiments/*.log
+results/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.env
+.ipynb_checkpoints/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Misc
+*.tar.gz
+*.tar.xz
+*.zip
+
+paper.tex
+src/experiments/
+*.log

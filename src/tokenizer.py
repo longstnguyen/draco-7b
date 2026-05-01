@@ -32,6 +32,21 @@ class ModelTokenizer:
         elif self.model == 'codellama':
             self.tokenizer = AutoTokenizer.from_pretrained(self.config.codellama7b_repo)
             self.max_input_length = self.config.codellama_max_token - self.config.max_to_generate
+        elif self.model == 'qwen25coder7b':
+            self.tokenizer = AutoTokenizer.from_pretrained(self.config.qwen25coder7b_repo, trust_remote_code=True)
+            self.max_input_length = self.config.qwen25coder_max_token - self.config.max_to_generate
+        elif self.model == 'qwen25coder3b':
+            self.tokenizer = AutoTokenizer.from_pretrained(self.config.qwen25coder3b_repo, trust_remote_code=True)
+            self.max_input_length = self.config.qwen25coder_max_token - self.config.max_to_generate
+        elif self.model in ('deepseekcoder1b3', 'deepseekcoder6b7'):
+            # Force fast tokenizer (slow LlamaTokenizer drops whitespace for these repos)
+            from transformers import PreTrainedTokenizerFast
+            from huggingface_hub import hf_hub_download
+            repo = (self.config.deepseekcoder1b3_repo if self.model == 'deepseekcoder1b3'
+                    else self.config.deepseekcoder6b7_repo)
+            tok_file = hf_hub_download(repo, "tokenizer.json")
+            self.tokenizer = PreTrainedTokenizerFast(tokenizer_file=tok_file)
+            self.max_input_length = self.config.deepseekcoder_max_token - self.config.max_to_generate
         elif self.model.startswith('gpt'):
             os.environ['TIKTOKEN_CACHE_DIR'] = self.config.tiktoken_cache_dir
             self.tokenizer = tiktoken.get_encoding("cl100k_base")
@@ -49,6 +64,8 @@ class ModelTokenizer:
             return len(self.tokenizer.encode(text, disallowed_special=()))
         else:
             return self.tokenizer.encode(text, return_tensors="pt").flatten().size(0)
+
+        # qwen25coder7b falls into the else branch above (HF tokenizer)
     
 
     def cal_prompt_max_length(self, program, suffix):
@@ -82,7 +99,7 @@ class ModelTokenizer:
         truncated_prompt = None
         if self.model.startswith('codegen') or self.model == 'codellama':
             truncated_prompt = self.codegen_truncate_concat(program, prompt, suffix)[0]
-        elif self.model == 'santacoder' or self.model == 'starcoder':
+        elif self.model == 'santacoder' or self.model == 'starcoder' or self.model == 'qwen25coder7b' or self.model == 'qwen25coder3b' or self.model == 'deepseekcoder1b3':
             truncated_prompt = self.coder_truncate_concat(program, prompt, suffix)[0]
         elif self.model.startswith('gpt'):
             truncated_prompt = self.gpt_truncate_concat(program, prompt, suffix)[0]

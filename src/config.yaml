@@ -33,3 +33,14 @@ gpt35_max_token: 4096
 # GPT4
 gpt4_api: "gpt-4-0613"
 gpt4_max_token: 8192
+
+# Qwen2.5-Coder
+qwen25coder7b_repo: "Qwen/Qwen2.5-Coder-7B"
+qwen25coder3b_repo: "Qwen/Qwen2.5-Coder-3B"
+qwen25coder_max_token: 8192
+
+# DeepSeek-Coder
+deepseekcoder1b3_repo: "deepseek-ai/deepseek-coder-1.3b-base"
+deepseekcoder6b7_repo: "deepseek-ai/deepseek-coder-6.7b-base"
+deepseekcoder_max_token: 4096
+deepseekcoder_max_token: 4096

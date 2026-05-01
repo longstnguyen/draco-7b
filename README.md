@@ -1,93 +1,75 @@
-# DraCo
+# DraCo Reproduction Package (DeepSeek-Coder-6.7B-base)
 
-Dataflow-Guided Retrieval Augmentation for Repository-Level Code Completion, ACL 2024 (main).
+End-to-end reproduction of DraCo (ACL 2024) on **3 benchmarks** — RepoEval (Line/API/Function), ReccEval, CrossCodeEval-Python — using `deepseek-ai/deepseek-coder-6.7b-base`.
 
-## Overview
+Tested on **NVIDIA A100 40GB**.
 
-In this paper, we present **DraCo**, a novel dataflow-guided retrieval augmentation approach for repository-level code completion, which steers code LMs with relevant background knowledge rather than similar code snippets. 
-DraCo employs the standard RAG framework including indexing, retrieval, and generation.
-We extend traditional dataflow analysis by setting type-sensitive dependency relations, and both indexing and retrieval in DraCo rely on the extended dataflow analysis.
+---
 
-![Overview of DraCo.](figs/overview.png)
-**Figure 1. The overview of our DraCo.**
+## One-command run
 
-We also present a new dataset, **ReccEval**, with diverse completion targets collected from PyPI. 
-Our experiments demonstrate that DraCo achieves generally superior accuracy and efficiency compared to the baselines.
-
-## ReccEval Dataset
-
-Each sample in ReccEval (`ReccEval/metadata.jsonl`) contains the following fields:
-
-- `pkg`: the repository it belongs to, e.g., `a13e`.
-- `fpath`: the file path where the code to be completed, e.g., `a13e/a13e-0.0.1/a13e/plugins/neteasecloudmusic/neteasemusic.py`.
-- `input`: the content before the cursor position to be completed.
-- `gt`: the ground truth of the code line to be completed.
-
-The original repositories of ReccEval contains all Python files.
-
-```
-cd ReccEval
-tar -zvxf Source_Code.tar.gz
+```bash
+git clone https://github.com/longstnguyen/draco-7b.git
+cd draco-7b
+bash run_all.sh
 ```
 
-## Quickstart
-### Prepare Environment
+`run_all.sh` will:
 
-Our DraCo is developed on Ubuntu 16.04 LTS.
+1. Create conda env `draco` (Python 3.10) and install dependencies (PyTorch 2.4 + CUDA 12.1, transformers, tree-sitter, etc.).
+2. Download 3 datasets:
+   - **RepoEval** (line/api/function, 16 repos)
+   - **ReccEval** (paper-shipped, full source code archive)
+   - **CrossCodeEval** (precomputed jsonl + clones 471 raw Python repos from GitHub)
+3. Convert each dataset to DraCo metadata format, build per-repo dataflow graphs (tree-sitter).
+4. Run DraCo prompt construction + DeepSeek-Coder-6.7B-base inference (HF, bf16) on all 3 benchmarks.
+5. Score with `experiments/evaluator.py` (EM, ES, ID.EM, F1) → write `results/SUMMARY.txt`.
 
-```
-conda create -n DraCo python=3.10
-pip install -r requirements.txt
-```
+Output predictions live under `experiments/preds_*.json`. Logs under `experiments/*.log`.
 
-### Repo-specific Context Graph
-During offline preprocessing, we build a repo-specific context graph for each repository in the datasets:
+---
 
-```
-cd src && python preprocess.py
-```
+## Hardware / runtime
 
-### Code Completion
-In real-time code completion, we generate the prompts for querying code language models (LMs):
+- 1× A100 40GB → batch_size=8, max_input_len=4096, max_new_tokens=48 (matches paper baselines).
+- Total walltime ≈ 6–10h depending on disk + network (CCE repo cloning is the slowest step, ~10 min for 471 shallow clones).
 
-```
-cd src && python main.py --model $MODEL --file $OUT_FILE
-```
+---
 
-### Notes 
-- We support for CodeGen, CodeGen25, SantaCoder, StarCoder, Code Llama, GPT models (see details in our paper).
-If you want to use local models or add other models, please modify their tokenizers in `src/config.yaml` and `src/tokenizer.py`.
-- The constants in `src/utils.py` control the behavior of DraCo and the paths associated with the used dataset.
-- To make the code more intuitive and applicable to different evaluations, we return decoded prompts. 
-This operation may lead to small fluctuations in the number of tokens (usually 0~2 tokens), but please don't truncate our well-formed prompts!
+## Granular control
 
-## Evaluation
+If you don't want the full pipeline, run each stage individually:
 
-We provide a script to evaluate Code Match (exact match and edit similarity) and Identifier Match (identifier exact match and F1-score).
-
-Install the extra dependencies for evaluation:
-
-```
-cd experiments && pip install -r requirements.txt
+```bash
+bash scripts/setup_env.sh         # conda env
+bash scripts/download_data.sh     # all 3 datasets + CCE repo clones
+bash scripts/prepare_data.sh      # convert to draco fmt + build graphs
+bash scripts/run_eval.sh          # eval all 3 with DS-Coder-6.7B
 ```
 
+To eval only one dataset, set `DRACO_DATASETS`:
+
+```bash
+DRACO_DATASETS="repoeval_line cce_python" bash scripts/run_eval.sh
 ```
-cd experiments && python evaluator.py --path $PRED_FILE
-```
 
-Note that we use `fuzz.ratio()` in [fuzzywuzzy](https://pypi.org/project/fuzzywuzzy) to calculate edit similarity, which is consistent with most studies such as [CodeXGLUE](https://github.com/microsoft/CodeXGLUE/blob/main/Code-Code/CodeCompletion-line/evaluator/evaluator.py), [CrossCodeEval](https://github.com/amazon-science/cceval/blob/main/scripts/eval_utils.py), and [RepoBench](https://github.com/Leolty/repobench/blob/main/evaluation/metrics.py).
+Available keys: `repoeval_line`, `repoeval_api`, `repoeval_function`, `recceval`, `cce_python`.
 
-There is a mistake about edit similarity in our paper (Appendix C.4). Actually, it is calculated as `ES = 1 - Lev(y, y*) / (||y|| + ||y*||)`, where Lev() is the Levenshtein distance with a substitution weight of $2$. Refer to the [implementation](https://github.com/rapidfuzz/RapidFuzz/blob/main/src/rapidfuzz/distance/Indel_py.py) details of `fuzz.ratio()`: `normalized_similarity` -> `normalized_distance` -> `distance`.
+---
 
-## Citation
+## Notes on CrossCodeEval
 
-If you find the work useful, please kindly cite it as follows:      
+CCE official only ships **precomputed retrieval contexts**, not raw repos. DraCo needs raw source to build its dataflow graph, so we shallow-clone the 471 unique repos (commit SHAs from metadata) using `scripts/clone_cce_repos.py`. ~80% of repos are still public; samples whose repo is missing are skipped (final coverage ≈ 2086/2665 = 78%).
 
-```
-@inproceedings{DraCo,
-  author    = {Wei Cheng and Yuhan Wu and Wei Hu},
-  title     = {Dataflow-Guided Retrieval Augmentation for Repository-Level Code Completion},
-  booktitle = {ACL},
-  year      = {2024}
-}
-```
+---
+
+## Reference numbers (DS-Coder-1.3B-base, single Quadro RTX 6000)
+
+| Dataset | EM | ES | ID.EM | F1 |
+|---|---|---|---|---|
+| RepoEval Line | 16.12 | 29.97 | 24.19 | 23.03 |
+| RepoEval API | 8.12 | 40.83 | 9.00 | 26.64 |
+| RepoEval Function | 1.98 | 48.73 | 2.64 | 37.11 |
+| CCE-Python (78% subset) | 29.77 | 72.36 | 40.22 | 65.99 |
+
+(6.7B numbers will fill in after running this package.)

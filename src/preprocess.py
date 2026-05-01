@@ -196,6 +196,8 @@ if __name__ == '__main__':
     for item in os.listdir(DS_REPO_DIR):
         if item not in pkg_set:
             continue
+        if os.path.isfile(os.path.join(DS_GRAPH_DIR, f'{item}.json')):
+            continue
         
         dir_path = os.path.join(DS_REPO_DIR, item)
         if os.path.isdir(dir_path):

@@ -1,6 +1,19 @@
-tree-sitter
-tree-sitter-python
-transformers==4.33.3
+# Core DraCo deps
+tree-sitter==0.21.3
+tree-sitter-python==0.21.0
 tiktoken
-torch
 attridict
+pyyaml
+tqdm
+
+# HF stack (DeepSeek-Coder)
+torch>=2.4
+transformers>=4.45,<5.0
+huggingface_hub>=0.24
+tokenizers>=0.20
+accelerate>=0.34
+
+# Eval metrics
+fuzzywuzzy==0.18.0
+python-Levenshtein>=0.25
+nltk==3.8.1
