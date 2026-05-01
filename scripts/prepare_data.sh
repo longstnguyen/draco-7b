@@ -20,10 +20,18 @@ declare -A RE_SRC=(
 for split in line api function; do
     SRC="${RE_SRC[$split]}"
     DST="${RE_DIR}/draco_${split}_metadata.jsonl"
-    if [[ -f "${SRC}" && ! -f "${DST}" ]]; then
-        echo "[prep] Converting RepoEval ${split} ..."
-        "${PYBIN}" experiments/convert_repoeval_to_draco.py --src "${SRC}" --dst "${DST}"
+    if [[ -f "${DST}" ]]; then
+        echo "[prep] RepoEval ${split}: ${DST} exists, skipping convert"
+        continue
     fi
+    if [[ ! -f "${SRC}" ]]; then
+        echo "[prep][ERROR] RepoEval ${split} source not found: ${SRC}" >&2
+        echo "[prep] Listing ${RE_DIR}:" >&2
+        ls -la "${RE_DIR}" >&2 || true
+        exit 1
+    fi
+    echo "[prep] Converting RepoEval ${split} ..."
+    "${PYBIN}" experiments/convert_repoeval_to_draco.py --src "${SRC}" --dst "${DST}"
 done
 
 # Build graphs for RepoEval (uses default DRACO_DS_FILE=draco_line_metadata.jsonl
