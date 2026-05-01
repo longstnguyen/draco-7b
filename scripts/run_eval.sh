@@ -3,7 +3,7 @@
 # Configurable via env:
 #   MODEL_KEY       (default: deepseekcoder6b7)
 #   MODEL_REPO      (default: deepseek-ai/deepseek-coder-6.7b-base)
-#   BATCH_SIZE      (default: 8 — A100 40GB; lower if OOM)
+#   BATCH_SIZE      (default: 16 — fits 80GB+ GPUs; lower to 8 for A100-40GB, 4 for 24GB)
 #   MAX_NEW_TOKENS  (default: 48 — line/api/function granularity, matches paper)
 #   MAX_INPUT_LEN   (default: 4096)
 #   DRACO_DATASETS  (default: "repoeval_line repoeval_api repoeval_function recceval cce_python")
@@ -15,7 +15,7 @@ cd "${ROOT_DIR}"
 PYBIN="${PYBIN:-python}"
 MODEL_KEY="${MODEL_KEY:-deepseekcoder6b7}"
 MODEL_REPO="${MODEL_REPO:-deepseek-ai/deepseek-coder-6.7b-base}"
-BATCH_SIZE="${BATCH_SIZE:-8}"
+BATCH_SIZE="${BATCH_SIZE:-16}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-48}"
 export MAX_INPUT_LEN="${MAX_INPUT_LEN:-4096}"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"

@@ -2,7 +2,7 @@
 
 End-to-end reproduction of DraCo (ACL 2024) on **3 benchmarks** — RepoEval (Line/API/Function), ReccEval, CrossCodeEval-Python — using `deepseek-ai/deepseek-coder-6.7b-base`.
 
-Tested on **NVIDIA A100 40GB**.
+Tested on **NVIDIA RTX Pro 6000 Blackwell (96GB)** and **A100 40GB**.
 
 ---
 
@@ -31,7 +31,9 @@ Output predictions live under `experiments/preds_*.json`. Logs under `experiment
 
 ## Hardware / runtime
 
-- 1× A100 40GB → batch_size=8, max_input_len=4096, max_new_tokens=48 (matches paper baselines).
+- 1× RTX Pro 6000 Blackwell 96GB → `BATCH_SIZE=16` (default), max_input_len=4096, max_new_tokens=48.
+- 1× A100 40GB → `BATCH_SIZE=8`.
+- 1× 24GB (RTX 4090 / 6000) → `BATCH_SIZE=4`.
 - Total walltime ≈ 6–10h depending on disk + network (CCE repo cloning is the slowest step, ~10 min for 471 shallow clones).
 
 ---
