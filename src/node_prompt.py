@@ -4,12 +4,31 @@ from itertools import groupby
 
 
 class projectSearcher(object):
-    def __init__(self) -> None:
+    def __init__(self, language: str = 'python') -> None:
         self.proj_dir = None
         self.proj_info = None
+        self.language = language
 
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'standard_modules.json'), 'r') as f:
-            self.standard_modules = json.load(f)
+        # Choose standard-modules JSON per language; fall back to the original
+        # `standard_modules.json` for python (back-compat) or for any unknown
+        # language (treated as empty filter).
+        here = os.path.dirname(os.path.abspath(__file__))
+        candidates = []
+        lang = (language or 'python').lower()
+        if lang in ('cs', 'csharp'):
+            lang = 'csharp'
+        if lang in ('ts', 'typescript'):
+            lang = 'typescript'
+        if lang == 'python':
+            candidates.append('standard_modules.json')
+        candidates.append(f'standard_modules_{lang}.json')
+        self.standard_modules = {}
+        for cand in candidates:
+            fp = os.path.join(here, cand)
+            if os.path.isfile(fp):
+                with open(fp, 'r') as f:
+                    self.standard_modules = json.load(f)
+                break
     
 
     def set_proj(self, proj_dir, proj_info):

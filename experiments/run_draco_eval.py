@@ -30,15 +30,18 @@ from generator import Generator as PromptGenerator  # noqa: E402
 from utils import DS_REPO_DIR, DS_GRAPH_DIR  # noqa: E402
 
 
-def build_prompts(model_name: str, ds_file: str):
-    gen = PromptGenerator(DS_REPO_DIR, DS_GRAPH_DIR, model_name.lower())
+def build_prompts(model_name: str, ds_file: str, language: str = 'python',
+                  repo_dir: str = None, graph_dir: str = None):
+    repo_dir = repo_dir or DS_REPO_DIR
+    graph_dir = graph_dir or DS_GRAPH_DIR
+    gen = PromptGenerator(repo_dir, graph_dir, model_name.lower(), language=language)
     with open(ds_file) as f:
         dataset = [json.loads(l) for l in f]
-    print(f"[+] Building prompts for {len(dataset)} samples ...")
+    print(f"[+] Building prompts for {len(dataset)} samples ... lang={language}")
     t0 = time.time()
     items = []
     for i, item in enumerate(tqdm(dataset, desc="prompts", unit="smp")):
-        fpath = os.path.join(DS_REPO_DIR, item["fpath"])
+        fpath = os.path.join(repo_dir, item["fpath"])
         try:
             prompt = gen.retrieve_prompt(item["pkg"], fpath, item["input"])
         except Exception as e:
@@ -174,6 +177,12 @@ def main():
     p.add_argument("--batch_size", type=int, default=4)
     p.add_argument("--reuse_prompts", action="store_true",
                    help="Reuse cached <out>.prompts.jsonl if exists")
+    p.add_argument("--language", default="python",
+                   choices=["python", "java", "csharp", "cs", "typescript", "ts"])
+    p.add_argument("--repo_dir", default=None,
+                   help="Repository root; defaults to utils.DS_REPO_DIR")
+    p.add_argument("--graph_dir", default=None,
+                   help="Per-repo parsed graph dir; defaults to utils.DS_GRAPH_DIR")
     args = p.parse_args()
 
     if args.ds_file is None:
@@ -189,7 +198,9 @@ def main():
         with open(prompts_path) as f:
             items = [json.loads(l) for l in f]
     else:
-        items = build_prompts(args.model, args.ds_file)
+        items = build_prompts(args.model, args.ds_file,
+                               language=args.language,
+                               repo_dir=args.repo_dir, graph_dir=args.graph_dir)
         with open(prompts_path, "w") as f:
             for it in items:
                 f.write(json.dumps(it) + "\n")

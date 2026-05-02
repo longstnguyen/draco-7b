@@ -1,0 +1,21 @@
+{
+  "java": 1,
+  "javax": 1,
+  "jdk": 1,
+  "sun": 1,
+  "com.sun": 1,
+  "org.w3c": 1,
+  "org.xml": 1,
+  "org.ietf": 1,
+  "org.omg": 1,
+  "org.junit": 1,
+  "junit": 1,
+  "org.slf4j": 1,
+  "org.apache": 1,
+  "org.springframework": 1,
+  "com.google": 1,
+  "com.fasterxml": 1,
+  "lombok": 1,
+  "io.netty": 1,
+  "reactor": 1
+}

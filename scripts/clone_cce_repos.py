@@ -1,21 +1,33 @@
 #!/usr/bin/env python3
-"""Clone the 471 CCE-Python repos into datasets/CrossCodeEval/repositories/<repo_name>.
+"""Clone CCE repos for a given language into
+datasets/CrossCodeEval/repositories_<lang>/<repo_name>.
 
-Each metadata.repository field is `owner-repo-shorthash`. We resolve the canonical
-`owner/repo` via LICENSES/project_license_map.txt by trying substring matches.
+For python, the legacy `repositories/` (without suffix) is preserved.
+Use `--language python|java|csharp|typescript`.
 """
-import json, os, re, subprocess, sys, time
+import argparse, json, os, re, subprocess, sys, time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+ap = argparse.ArgumentParser()
+ap.add_argument("--language", "-l", default="python",
+                choices=["python", "java", "csharp", "typescript"])
+ap.add_argument("--workers", type=int, default=8)
+ap.add_argument("--cce_dir", default=None,
+                help="Override CCE root; defaults to datasets/CrossCodeEval")
+cli = ap.parse_args()
+
+LANG = cli.language
+LANG_SUFFIX = '' if LANG == 'python' else f'_{LANG}'
 
 # Resolve repo paths relative to this script (works on any machine).
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SCRIPT_DIR.parent
-CCE_DIR = Path(os.environ.get("CCE_DIR", ROOT_DIR / "datasets" / "CrossCodeEval"))
-META = CCE_DIR / "python" / "line_completion.jsonl"
+CCE_DIR = Path(cli.cce_dir or os.environ.get("CCE_DIR", ROOT_DIR / "datasets" / "CrossCodeEval"))
+META = CCE_DIR / LANG / "line_completion.jsonl"
 LICENSE_MAP = CCE_DIR / "LICENSES" / "project_license_map.txt"
-REPO_DIR = CCE_DIR / "repositories"
-LOG_DIR = CCE_DIR / "clone_logs"
+REPO_DIR = CCE_DIR / f"repositories{LANG_SUFFIX}"
+LOG_DIR = CCE_DIR / f"clone_logs{LANG_SUFFIX}"
 REPO_DIR.mkdir(parents=True, exist_ok=True)
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -40,7 +52,7 @@ with open(META) as f:
         d = json.loads(line)
         cce_repos.add(d["metadata"]["repository"])
 cce_repos = sorted(cce_repos)
-print(f"Unique CCE python repos: {len(cce_repos)}", flush=True)
+print(f"Unique CCE {LANG} repos: {len(cce_repos)}", flush=True)
 
 
 def resolve(cce_name):
@@ -78,7 +90,7 @@ if unresolved[:5]:
     print("First unresolved:", unresolved[:5], flush=True)
 
 # Save mapping
-with open(CCE_DIR / "repo_mapping.json", "w") as f:
+with open(CCE_DIR / f"repo_mapping{LANG_SUFFIX}.json", "w") as f:
     json.dump({"resolved": resolved, "unresolved": unresolved}, f, indent=2)
 
 
@@ -116,10 +128,10 @@ def clone_one(cce_name):
 
 
 todo = list(resolved.keys())
-print(f"Cloning {len(todo)} repos with 8 workers...", flush=True)
+print(f"Cloning {len(todo)} {LANG} repos with {cli.workers} workers...", flush=True)
 results = {}
 t0 = time.time()
-with ThreadPoolExecutor(max_workers=8) as ex:
+with ThreadPoolExecutor(max_workers=cli.workers) as ex:
     futs = {ex.submit(clone_one, r): r for r in todo}
     for i, fut in enumerate(as_completed(futs), 1):
         name, status = fut.result()
@@ -129,7 +141,7 @@ with ThreadPoolExecutor(max_workers=8) as ex:
             ok = sum(1 for v in results.values() if v in ("ok", "skip-exists"))
             print(f"[{i}/{len(todo)}] {name} -> {status} | ok={ok} | {elapsed:.0f}s", flush=True)
 
-with open(CCE_DIR / "clone_results.json", "w") as f:
+with open(CCE_DIR / f"clone_results{LANG_SUFFIX}.json", "w") as f:
     json.dump(results, f, indent=2)
 ok = sum(1 for v in results.values() if v in ("ok", "skip-exists"))
 print(f"\nDONE: {ok}/{len(todo)} cloned successfully in {time.time()-t0:.0f}s", flush=True)

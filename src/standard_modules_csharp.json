@@ -1,0 +1,14 @@
+{
+  "System": 1,
+  "Microsoft": 1,
+  "Windows": 1,
+  "Mono": 1,
+  "Xamarin": 1,
+  "Newtonsoft": 1,
+  "NUnit": 1,
+  "Xunit": 1,
+  "MSTest": 1,
+  "Moq": 1,
+  "Serilog": 1,
+  "AutoMapper": 1
+}

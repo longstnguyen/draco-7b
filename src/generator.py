@@ -7,21 +7,25 @@ try:
     from .node_prompt import projectSearcher
     from .tokenizer import ModelTokenizer
     from .utils import MAX_HOP, ONLY_DEF, ENABLE_DOCSTRING, LAST_K_LINES
+    from . import lang as _lang_pkg
 except:
     from graph import tGraph
     from extract_dataflow import PythonParser
     from node_prompt import projectSearcher
     from tokenizer import ModelTokenizer
     from utils import MAX_HOP, ONLY_DEF, ENABLE_DOCSTRING, LAST_K_LINES
+    import lang as _lang_pkg
 
 
 class Generator(object):
-    def __init__(self, proj_dir, info_dir, model):
-        self.parser = PythonParser()
+    def __init__(self, proj_dir, info_dir, model, language: str = 'python'):
+        self.language = (language or 'python').lower()
+        self._adapter = _lang_pkg.get_adapter(self.language)
+        self.parser = self._adapter.DataflowParser()
         self.proj_dir = os.path.abspath(proj_dir)
         self.info_dir = os.path.abspath(info_dir)
 
-        self.searcher = projectSearcher()
+        self.searcher = projectSearcher(language=self.language)
         self.tokenizer = ModelTokenizer(model)
 
         self.project = None
@@ -61,13 +65,11 @@ class Generator(object):
     
 
     def _get_module_name(self, fpath):
-        if fpath.endswith('.py'):
-            fpath = fpath[:-3]
-            if fpath.endswith('__init__'):
-                fpath = fpath[:-8]
-
-        fpath = fpath.rstrip(os.sep)
-        return fpath[len(self.searcher.proj_dir):].replace(os.sep, '.')
+        rel = fpath
+        if rel.startswith(self.searcher.proj_dir):
+            rel = rel[len(self.searcher.proj_dir):]
+        rel = rel.rstrip(os.sep)
+        return self._adapter.module_name(rel)
 
 
     def get_suffix(self, fpath):
@@ -109,9 +111,20 @@ class Generator(object):
         '''
         self.set_pyfile(project, fpath)
 
-        fpath = self._get_module_name(fpath)
+        fpath_mod = self._get_module_name(fpath)
 
-        self.parser.parse(source_code)
+        if self.language == 'python':
+            self.parser.parse(source_code)
+        else:
+            # Non-Python adapters need the file's module name for relative-import
+            # resolution and the actual filename to choose the right grammar.
+            src_bytes = source_code.encode('utf-8') if isinstance(source_code, str) else source_code
+            try:
+                self.parser.parse_bytes(src_bytes, file_module=fpath_mod, fpath=fpath)
+            except TypeError:
+                self.parser.parse(src_bytes)
+
+        fpath = fpath_mod
 
         limit_assign = True
         graph = tGraph(self.parser.DFG)

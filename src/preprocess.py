@@ -1,31 +1,40 @@
 import os
 import re
 import json
+import argparse
 import multiprocessing as mp
 from pyfile_parse import PythonParser
 from node_prompt import projectSearcher
 from utils import DS_REPO_DIR, DS_FILE, DS_GRAPH_DIR
+import lang as _lang_pkg
 
 
 def _parse_one(args):
     """Worker function for parallel repo parsing (must be top-level for spawn)."""
-    name, dpath = args
+    name, dpath, language, out_dir = args
     try:
-        parser = projectParser()
+        parser = projectParser(language=language)
         info = parser.parse_dir(dpath)
-        with open(os.path.join(DS_GRAPH_DIR, f'{name}.json'), 'w') as f:
+        with open(os.path.join(out_dir, f'{name}.json'), 'w') as f:
             json.dump(info, f)
         return name, True, None
     except Exception as e:
-        return name, False, repr(e)
+        import traceback
+        return name, False, repr(e) + '\n' + traceback.format_exc()
+
+
+_GRAPH_DIR_OVERRIDE = None  # set by main when --output-dir is passed
 
 
 class projectParser(object):
-    def __init__(self):
-        self.py_parser = PythonParser()
+    def __init__(self, language: str = 'python'):
+        self.language = (language or 'python').lower()
+        self._adapter = _lang_pkg.get_adapter(self.language)
+        self.file_exts = tuple(self._adapter.FILE_EXTS)
+        self.py_parser = self._adapter.MetadataParser()
         self.iden_pattern = re.compile(r'[^\w\-]')
 
-        self.proj_searcher = projectSearcher()
+        self.proj_searcher = projectSearcher(language=self.language)
 
         self.proj_dir = None
         self.parse_res = None
@@ -92,21 +101,29 @@ class projectParser(object):
                     if re.search(self.iden_pattern, item) is None:
                         dir_list.append(fpath)
                         py_dict[py_dir].add(fpath)
-                elif os.path.isfile(fpath) and fpath.endswith('.py'):
-                    if re.search(self.iden_pattern, item[:-3]) is None:
+                elif os.path.isfile(fpath):
+                    matched_ext = None
+                    for ext in self.file_exts:
+                        if fpath.endswith(ext):
+                            matched_ext = ext
+                            break
+                    if matched_ext is None:
+                        continue
+                    stem = item[: -len(matched_ext)]
+                    if re.search(self.iden_pattern, stem) is None:
                         py_dict[py_dir].add(fpath)
         
         return py_dict
 
 
     def _get_module_name(self, fpath):
-        if fpath.endswith('.py'):
-            fpath = fpath[:-3]
-            if fpath.endswith('__init__'):
-                fpath = fpath[:-8]
-
-        fpath = fpath.rstrip(os.sep)
-        return fpath[len(self.proj_dir):].replace(os.sep, '.')
+        # Strip project dir prefix and let the adapter convert the relative
+        # path to a dotted module name.
+        rel = fpath
+        if rel.startswith(self.proj_dir):
+            rel = rel[len(self.proj_dir):]
+        rel = rel.rstrip(os.sep)
+        return self._adapter.module_name(rel)
 
 
     def parse_dir(self, pkg_dir):
@@ -127,7 +144,74 @@ class projectParser(object):
         '''
         self.set_proj_dir(pkg_dir)
         py_dict = self._get_all_module_path(pkg_dir)
-        
+
+        if self.language == 'python':
+            return self._parse_dir_python(pkg_dir, py_dict)
+        else:
+            return self._parse_dir_generic(pkg_dir, py_dict)
+
+
+    def _parse_dir_generic(self, pkg_dir, py_dict):
+        """One-source-file = one module. Used for Java / C# / TypeScript."""
+        self.parse_res = {}
+        for dir_path, items in py_dict.items():
+            for fpath in items:
+                if fpath in py_dict:
+                    continue  # subdirectory; handled by its own iteration
+                module = self._get_module_name(fpath)
+                if not module:
+                    continue
+                try:
+                    info = self.py_parser.parse(fpath, file_module=module) \
+                        if 'file_module' in self.py_parser.parse.__code__.co_varnames \
+                        else self.py_parser.parse(fpath)
+                except Exception as e:
+                    print(f'[preprocess] WARN: failed to parse {fpath}: {e!r}')
+                    continue
+                if info:
+                    self.parse_res[module] = info
+
+        # Synthesise namespace-level virtual modules for languages that decouple
+        # namespaces from file paths (mainly C#). Each fully-qualified Class/
+        # Module key (e.g. ``MyApp.Util.Helper``) gets its parent namespace
+        # registered as a Module entry exposing the leaf name. This lets
+        # `_check_local_import` resolve wildcard usings like ``using MyApp.Util;``.
+        if self.language in ('csharp', 'cs'):
+            self._synthesise_namespace_modules()
+
+        self.proj_searcher.set_proj(pkg_dir, self.parse_res)
+        self.retain_project_rels()
+        return self.parse_res
+
+    def _synthesise_namespace_modules(self):
+        synth = {}
+        for module_key, info in self.parse_res.items():
+            for sym, sym_info in info.items():
+                if not sym or '.' not in sym:
+                    continue
+                if sym_info.get('type') not in ('Class', 'Function', 'Variable'):
+                    continue
+                if sym_info.get('in_class'):
+                    continue  # only top-level types create namespace entries
+                ns, leaf = sym.rsplit('.', 1)
+                if not ns:
+                    continue
+                synth.setdefault(ns, {})[leaf] = {
+                    'type': 'Module',
+                    'def': '',
+                    'sline': -1,
+                    'import': [sym, None],
+                }
+        for ns, members in synth.items():
+            if ns in self.parse_res:
+                # do not overwrite a real file-based module with the same key
+                continue
+            entry = {'': {'type': 'Module', 'def': '', 'sline': 1}}
+            entry.update(members)
+            self.parse_res[ns] = entry
+
+
+    def _parse_dir_python(self, pkg_dir, py_dict):
         # order: dir, __init__.py, .py
         module_dict = {}
         # dir
@@ -196,32 +280,51 @@ class projectParser(object):
 
 if __name__ == '__main__':
 
-    with open(DS_FILE, 'r') as f:
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--language', '-l', default='python',
+                    choices=['python', 'java', 'csharp', 'cs', 'typescript', 'ts'])
+    ap.add_argument('--dataset', default=None,
+                    help='Path to a metadata jsonl file. Each line must have a `pkg` key. '
+                         'Defaults to DS_FILE from utils.')
+    ap.add_argument('--repo-dir', default=None,
+                    help='Repository root containing all `pkg` directories. '
+                         'Defaults to DS_REPO_DIR from utils.')
+    ap.add_argument('--output-dir', default=None,
+                    help='Where to write `<pkg>.json` graph files. '
+                         'Defaults to DS_GRAPH_DIR from utils.')
+    args = ap.parse_args()
+
+    ds_file = args.dataset or DS_FILE
+    repo_dir = args.repo_dir or DS_REPO_DIR
+    out_dir = args.output_dir or DS_GRAPH_DIR
+    _GRAPH_DIR_OVERRIDE = out_dir
+
+    with open(ds_file, 'r') as f:
         ds = [json.loads(line) for line in f.readlines()]
     
     pkg_set = set([x['pkg'] for x in ds])
-    print(f'There are {len(pkg_set)} repositories in ReccEval.')
+    print(f'There are {len(pkg_set)} repositories in {ds_file}.')
 
-    if not os.path.isdir(DS_GRAPH_DIR):
-        os.mkdir(DS_GRAPH_DIR)
+    if not os.path.isdir(out_dir):
+        os.makedirs(out_dir, exist_ok=True)
 
-    # Build (pkg_name, dir_path) tasks for repos that need processing
+    # Build (pkg_name, dir_path, language) tasks for repos that need processing
     tasks = []
-    for item in os.listdir(DS_REPO_DIR):
+    for item in os.listdir(repo_dir):
         if item not in pkg_set:
             continue
-        if os.path.isfile(os.path.join(DS_GRAPH_DIR, f'{item}.json')):
+        if os.path.isfile(os.path.join(out_dir, f'{item}.json')):
             continue
-        dir_path = os.path.join(DS_REPO_DIR, item)
+        dir_path = os.path.join(repo_dir, item)
         if not os.path.isdir(dir_path):
             continue
         content = list(os.listdir(dir_path))
         if len(content) == 1:
             dir_path = os.path.join(dir_path, content[0])
-        tasks.append((item, dir_path))
+        tasks.append((item, dir_path, args.language, out_dir))
 
     workers = int(os.environ.get('DRACO_WORKERS', max(1, (os.cpu_count() or 1) - 1)))
-    print(f'[preprocess] {len(tasks)} repos to parse with {workers} worker(s).')
+    print(f'[preprocess] {len(tasks)} repos to parse with {workers} worker(s) (lang={args.language}).')
 
     if workers > 1 and len(tasks) > 1:
         with mp.get_context('spawn').Pool(workers) as pool:
@@ -240,4 +343,4 @@ if __name__ == '__main__':
             else:
                 print(f'[preprocess] [{i}/{len(tasks)}] {name} FAILED: {err}')
 
-    print(f'Generate repo-specific context graph for {len(os.listdir(DS_GRAPH_DIR))} repositories.')
+    print(f'Generate repo-specific context graph for {len(os.listdir(out_dir))} repositories.')
