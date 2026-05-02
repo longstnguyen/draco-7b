@@ -85,3 +85,6 @@ SUMMARY="results/SUMMARY_${MODEL_KEY}.txt"
 } | tee "${SUMMARY}"
 
 echo "[eval] Summary written to ${SUMMARY}"
+
+# Markdown aggregate (works even if some splits are still in-progress)
+MODEL_KEY="${MODEL_KEY}" "${PYBIN}" scripts/aggregate_results.py || true
