@@ -38,9 +38,16 @@ class Generator(object):
 
         info_file = os.path.join(self.info_dir, f'{project}.json')
         if not os.path.isfile(info_file):
-            print(f'Unknown package {project} in {self.info_dir}')
-            return
-        
+            # Clear any stale state so the next item does not silently
+            # inherit a previously-loaded project's graph.
+            self.project = None
+            self.proj_info = None
+            raise FileNotFoundError(
+                f'DraCo graph not built for project {project!r} '
+                f'(missing {info_file}). Run scripts/prepare_data.sh, '
+                f'or `rm -rf <dataset>/Graph` and re-run preprocess.py.'
+            )
+
         self.project = project
         with open(info_file, 'r') as f:
             self.proj_info = json.load(f)

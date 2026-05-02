@@ -40,18 +40,56 @@ def build_prompts(model_name: str, ds_file: str, language: str = 'python',
     print(f"[+] Building prompts for {len(dataset)} samples ... lang={language}")
     t0 = time.time()
     items = []
+    missing_graph_pkgs: set = set()
+    fallback_count = 0
     for i, item in enumerate(tqdm(dataset, desc="prompts", unit="smp")):
         fpath = os.path.join(repo_dir, item["fpath"])
         try:
             prompt = gen.retrieve_prompt(item["pkg"], fpath, item["input"])
+        except FileNotFoundError as e:
+            if 'graph not built' in str(e).lower():
+                missing_graph_pkgs.add(item["pkg"])
+            fallback_count += 1
+            prompt = item["input"]
         except Exception as e:
             tqdm.write(f"  [!] sample {i} ({item['fpath']}) failed: {e!r}")
-            prompt = item["input"]  # fallback: just the program prefix
+            fallback_count += 1
+            prompt = item["input"]
         if not isinstance(prompt, str) or len(prompt) == 0:
             prompt = item["input"] if isinstance(item.get("input"), str) else ""
         items.append({"prompt": prompt, "gt": item["gt"]})
     print(f"[+] Built prompts in {time.time()-t0:.1f}s")
+
+    if fallback_count:
+        rate = fallback_count / max(1, len(dataset))
+        print(f"[!] {fallback_count}/{len(dataset)} ({rate:.1%}) prompts fell back to "
+              f"raw source (no DraCo graph context).")
+        if missing_graph_pkgs:
+            sample = sorted(missing_graph_pkgs)[:5]
+            more = '' if len(missing_graph_pkgs) <= 5 else f' (+{len(missing_graph_pkgs) - 5} more)'
+            print(f"[!]   {len(missing_graph_pkgs)} project graphs missing in {graph_dir}. "
+                  f"Sample: {sample}{more}")
+            print(f"[!]   Fix: rm -rf <dataset>/Graph && bash scripts/prepare_data.sh")
+        if rate > 0.05 and not os.environ.get("DRACO_ALLOW_MISSING_GRAPH"):
+            sys.exit(f"[!] Aborting: graph-fallback rate {rate:.1%} > 5%. "
+                     f"Rebuild graphs, or set DRACO_ALLOW_MISSING_GRAPH=1 to proceed anyway.")
     return items
+
+
+def _validate_prompts_cache(items, threshold: float = 0.9) -> bool:
+    """Return True if cached prompts look complete (>= threshold have a graph block)."""
+    if not items:
+        return False
+    def has_graph_block(p: str) -> bool:
+        s = (p or '').lstrip()
+        return s.startswith("'''") or s.startswith('"""') or s.startswith('/*')
+    n = sum(1 for it in items if has_graph_block(it.get('prompt', '')))
+    rate = n / len(items)
+    if rate < threshold:
+        print(f"[!] Cached prompts only have graph context in {n}/{len(items)} "
+              f"({rate:.1%}) items — likely from a run with broken graphs.")
+        return False
+    return True
 
 
 def run_hf(items, model_repo: str, max_new_tokens: int = 48,
@@ -193,11 +231,16 @@ def main():
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
 
     prompts_path = args.out + ".prompts.jsonl"
+    items = None
     if args.reuse_prompts and os.path.isfile(prompts_path):
-        print(f"[+] Reusing cached prompts: {prompts_path}")
         with open(prompts_path) as f:
-            items = [json.loads(l) for l in f]
-    else:
+            cached = [json.loads(l) for l in f]
+        if _validate_prompts_cache(cached) or os.environ.get("DRACO_ALLOW_MISSING_GRAPH"):
+            print(f"[+] Reusing cached prompts: {prompts_path}")
+            items = cached
+        else:
+            print(f"[+] Refusing to reuse stale prompts cache; rebuilding.")
+    if items is None:
         items = build_prompts(args.model, args.ds_file,
                                language=args.language,
                                repo_dir=args.repo_dir, graph_dir=args.graph_dir)

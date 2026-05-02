@@ -308,6 +308,20 @@ if __name__ == '__main__':
     if not os.path.isdir(out_dir):
         os.makedirs(out_dir, exist_ok=True)
 
+    # Loudly report repos referenced in metadata but missing from disk — without
+    # this, preprocess silently produces an incomplete Graph dir and downstream
+    # eval falls back to bare-source prompts.
+    on_disk = set(os.listdir(repo_dir)) if os.path.isdir(repo_dir) else set()
+    missing_repos = sorted(pkg_set - on_disk)
+    if missing_repos:
+        sample = missing_repos[:5]
+        more = '' if len(missing_repos) <= 5 else f' (+{len(missing_repos) - 5} more)'
+        print(f'[preprocess] WARNING: {len(missing_repos)}/{len(pkg_set)} repos in '
+              f'{ds_file} are NOT present in {repo_dir}.')
+        print(f'[preprocess]   Sample missing: {sample}{more}')
+        print(f'[preprocess]   These pkgs will have no graph and will use fallback '
+              f'prompts during eval. Re-clone the repos and re-run preprocess.')
+
     # Build (pkg_name, dir_path, language) tasks for repos that need processing
     tasks = []
     for item in os.listdir(repo_dir):
@@ -343,4 +357,14 @@ if __name__ == '__main__':
             else:
                 print(f'[preprocess] [{i}/{len(tasks)}] {name} FAILED: {err}')
 
-    print(f'Generate repo-specific context graph for {len(os.listdir(out_dir))} repositories.')
+    built = set(f[:-5] for f in os.listdir(out_dir) if f.endswith('.json'))
+    have = built & pkg_set
+    missing_after = sorted(pkg_set - built)
+    print(f'Generated repo-specific context graphs for '
+          f'{len(have)}/{len(pkg_set)} repositories from {ds_file}.')
+    if missing_after:
+        sample = missing_after[:5]
+        more = '' if len(missing_after) <= 5 else f' (+{len(missing_after) - 5} more)'
+        print(f'[preprocess] WARNING: {len(missing_after)} pkg(s) still without a '
+              f'graph: {sample}{more}')
+        print(f'[preprocess] Eval on these pkgs will use the bare-source fallback.')
