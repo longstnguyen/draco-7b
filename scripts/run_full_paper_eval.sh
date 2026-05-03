@@ -99,6 +99,26 @@ if [[ -z "${SKIP_BACKUP:-}" ]]; then
     fi
 fi
 
+# ---------------- Step 2.5: ensure datasets present ----------------
+need_download=0
+for d in datasets/RepoEval/repositories \
+         datasets/ReccEval/repositories \
+         datasets/CrossCodeEval/repositories; do
+    if [[ ! -d "${d}" ]] || [[ -z "$(ls -A "${d}" 2>/dev/null)" ]]; then
+        echo "[step2.5] Missing or empty: ${d}"
+        need_download=1
+    fi
+done
+if [[ "${need_download}" -eq 1 ]] && [[ -z "${SKIP_DOWNLOAD:-}" ]]; then
+    echo "[step2.5] Running download_data.sh (this is heavy; ~10-30 GB + many git clones) ..."
+    bash scripts/download_data.sh
+elif [[ "${need_download}" -eq 1 ]]; then
+    echo "[step2.5] SKIP_DOWNLOAD set but datasets missing — aborting." >&2
+    exit 1
+else
+    echo "[step2.5] All three datasets present; skipping download_data.sh."
+fi
+
 # ---------------- Step 3: rebuild ReccEval + CCE graphs ----------------
 echo "[step3] Removing stale graphs for ReccEval + CrossCodeEval ..."
 rm -rf datasets/ReccEval/Graph datasets/CrossCodeEval/Graph
