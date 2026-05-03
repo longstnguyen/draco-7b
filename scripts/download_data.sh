@@ -11,16 +11,40 @@ PYBIN="${PYBIN:-python}"
 
 download() {
     local url="$1" out="$2"
-    if [[ -s "${out}" ]]; then
+    if [[ -s "${out}" ]] && _archive_looks_valid "${out}"; then
         echo "[data] exists: ${out}"
         return 0
     fi
-    echo "[data] download: ${url} -> ${out}"
+    if [[ -e "${out}" ]]; then
+        echo "[data] re-downloading (existing file is corrupt/empty/HTML): ${out}"
+        rm -f "${out}"
+    else
+        echo "[data] download: ${url} -> ${out}"
+    fi
     if command -v curl >/dev/null 2>&1; then
         curl -fL --retry 3 --retry-delay 2 -o "${out}" "${url}"
     else
         wget -O "${out}" "${url}"
     fi
+    if ! _archive_looks_valid "${out}"; then
+        echo "[data][ERROR] downloaded file is not a valid archive: ${out}" >&2
+        echo "[data][ERROR]   first 200 bytes: $(head -c 200 "${out}" | tr -d '\0' | head -c 200)" >&2
+        echo "[data][ERROR] URL may need authentication or be rate-limited: ${url}" >&2
+        exit 1
+    fi
+}
+
+_archive_looks_valid() {
+    # Treat any non-archive (jsonl/json/txt) as "fine" — only validate things
+    # that should be archives by extension.
+    local f="$1"
+    case "${f}" in
+        *.zip)            unzip -tq "${f}" >/dev/null 2>&1 ;;
+        *.tar.gz|*.tgz)   gzip -t "${f}" 2>/dev/null && tar -tzf "${f}" >/dev/null 2>&1 ;;
+        *.tar.xz)         xz -t "${f}" 2>/dev/null && tar -tJf "${f}" >/dev/null 2>&1 ;;
+        *)                # not an archive — just require non-empty
+                          [[ -s "${f}" ]] ;;
+    esac
 }
 
 extract() {
