@@ -31,14 +31,29 @@ from utils import DS_REPO_DIR, DS_GRAPH_DIR  # noqa: E402
 
 
 def build_prompts(model_name: str, ds_file: str, language: str = 'python',
-                  repo_dir: str = None, graph_dir: str = None):
+                  repo_dir: str = None, graph_dir: str = None,
+                  prompt_mode: str = 'draco'):
+    """Build prompts for each item.
+
+    prompt_mode:
+        'draco'       — DraCo graph retrieval prepended to source prefix (default)
+        'prefix_only' — just the source-code prefix (`item["input"]`); no retrieval.
+                        Matches the file-only baseline in the DraCo paper.
+    """
     repo_dir = repo_dir or DS_REPO_DIR
     graph_dir = graph_dir or DS_GRAPH_DIR
-    gen = PromptGenerator(repo_dir, graph_dir, model_name.lower(), language=language)
     with open(ds_file) as f:
         dataset = [json.loads(l) for l in f]
-    print(f"[+] Building prompts for {len(dataset)} samples ... lang={language}")
+    print(f"[+] Building prompts for {len(dataset)} samples ... "
+          f"lang={language} mode={prompt_mode}")
     t0 = time.time()
+
+    if prompt_mode == 'prefix_only':
+        items = [{"prompt": it.get("input") or "", "gt": it["gt"]} for it in dataset]
+        print(f"[+] Built prompts in {time.time()-t0:.1f}s (prefix_only baseline)")
+        return items
+
+    gen = PromptGenerator(repo_dir, graph_dir, model_name.lower(), language=language)
     items = []
     missing_graph_pkgs: set = set()
     fallback_count = 0
@@ -221,6 +236,10 @@ def main():
                    help="Repository root; defaults to utils.DS_REPO_DIR")
     p.add_argument("--graph_dir", default=None,
                    help="Per-repo parsed graph dir; defaults to utils.DS_GRAPH_DIR")
+    p.add_argument("--prompt_mode", default="draco",
+                   choices=["draco", "prefix_only"],
+                   help="'draco' = full graph retrieval (default); "
+                        "'prefix_only' = source-prefix only (paper baseline)")
     args = p.parse_args()
 
     if args.ds_file is None:
@@ -243,7 +262,8 @@ def main():
     if items is None:
         items = build_prompts(args.model, args.ds_file,
                                language=args.language,
-                               repo_dir=args.repo_dir, graph_dir=args.graph_dir)
+                               repo_dir=args.repo_dir, graph_dir=args.graph_dir,
+                               prompt_mode=args.prompt_mode)
         with open(prompts_path, "w") as f:
             for it in items:
                 f.write(json.dumps(it) + "\n")

@@ -17,25 +17,27 @@ MODEL_KEY="${MODEL_KEY:-deepseekcoder6b7}"
 MODEL_REPO="${MODEL_REPO:-deepseek-ai/deepseek-coder-6.7b-base}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-48}"
+PROMPT_MODE="${PROMPT_MODE:-draco}"
 export MAX_INPUT_LEN="${MAX_INPUT_LEN:-4096}"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
-DRACO_DATASETS="${DRACO_DATASETS:-repoeval_line repoeval_api repoeval_function recceval cce_python}"
+DRACO_DATASETS="${DRACO_DATASETS:-repoeval_line repoeval_api repoeval_function recceval cce_python cce_java cce_csharp cce_typescript}"
 
 mkdir -p experiments results
 
 run_one() {
-    local key="$1" base_dir="$2" ds_file="$3" repo_sub="${4:-repositories}"
+    local key="$1" base_dir="$2" ds_file="$3" repo_sub="${4:-repositories}" graph_sub="${5:-Graph}" lang="${6:-python}"
     local out="experiments/preds_${key}_${MODEL_KEY}.json"
     local log="experiments/run_${key}_${MODEL_KEY}.log"
     if [[ -f "${out}" ]]; then
         echo "[eval] ${key}: predictions exist, skipping inference"
         return
     fi
-    echo "[eval] ${key} -> ${out}"
+    echo "[eval] ${key} -> ${out} (lang=${lang})"
     DRACO_DS_BASE_DIR="${base_dir}" \
     DRACO_DS_FILE="${ds_file}" \
     DRACO_DS_REPO_SUBDIR="${repo_sub}" \
+    DRACO_DS_GRAPH_SUBDIR="${graph_sub}" \
         "${PYBIN}" experiments/run_draco_eval.py \
             --model "${MODEL_KEY}" \
             --model_repo "${MODEL_REPO}" \
@@ -43,6 +45,8 @@ run_one() {
             --engine hf \
             --batch_size "${BATCH_SIZE}" \
             --max_new_tokens "${MAX_NEW_TOKENS}" \
+            --language "${lang}" \
+            --prompt_mode "${PROMPT_MODE}" \
             --reuse_prompts \
             2>&1 | tee "${log}"
 }
@@ -67,6 +71,9 @@ for key in ${DRACO_DATASETS}; do
         repoeval_function) run_one "$key" "${DS_REPOEVAL}" "draco_function_metadata.jsonl" ;;
         recceval)          run_one "$key" "${DS_RECCEVAL}" "metadata.jsonl" ;;
         cce_python)        run_one "$key" "${DS_CCE}"      "draco_line_metadata.jsonl" ;;
+        cce_java)          run_one "$key" "${DS_CCE}"      "draco_java_metadata.jsonl"       "repositories_java"       "Graph_java"       "java" ;;
+        cce_csharp)        run_one "$key" "${DS_CCE}"      "draco_csharp_metadata.jsonl"     "repositories_csharp"     "Graph_csharp"     "csharp" ;;
+        cce_typescript)    run_one "$key" "${DS_CCE}"      "draco_typescript_metadata.jsonl" "repositories_typescript" "Graph_typescript" "typescript" ;;
         *) echo "[eval] Unknown dataset key: ${key}" >&2; exit 1 ;;
     esac
 done
