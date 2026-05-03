@@ -155,36 +155,44 @@ if [[ ! -f "${CCE_DIR}/python/line_completion.jsonl" ]]; then
 fi
 echo "[data] CCE precomputed jsonl ready at ${CCE_DIR}"
 
-# Clone CCE raw repos. Compare against the metadata pkg count (~390 for
-# Python) — anything less means the previous clone was interrupted.
-CCE_EXPECTED=$(_count_pkgs "${CCE_DIR}/draco_line_metadata.jsonl")
-if [[ "${CCE_EXPECTED}" -eq 0 ]]; then
-    # metadata might be the upstream raw cceval line_completion.jsonl
-    CCE_EXPECTED=$("${PYBIN}" - "${CCE_DIR}/python/line_completion.jsonl" <<'PY' 2>/dev/null || echo 0
+# Clone CCE raw repos. Determine expected count from line_completion.jsonl
+# (the file we just extracted); fall back to the paper number ~390 if anything
+# in the parse breaks. Default to 0 if empty/garbled — we still re-run
+# clone_cce_repos.py whenever the on-disk count is short of either.
+CCE_EXPECTED=$("${PYBIN}" - "${CCE_DIR}/python/line_completion.jsonl" <<'PY'
 import json, sys
 try:
+    repos = set()
     with open(sys.argv[1]) as f:
-        # cceval uses "metadata" / "repository" key
-        repos = {json.loads(l).get('metadata', {}).get('repository') or json.loads(l).get('repository','') for l in f}
-        print(len(repos - {''}))
+        for l in f:
+            try:
+                d = json.loads(l)
+            except Exception:
+                continue
+            r = (d.get('metadata') or {}).get('repository') or d.get('repository') or ''
+            if r:
+                repos.add(r)
+    print(len(repos))
 except Exception:
     print(0)
 PY
 )
+CCE_EXPECTED=${CCE_EXPECTED:-0}
+[[ "${CCE_EXPECTED}" =~ ^[0-9]+$ ]] || CCE_EXPECTED=0
+# Always treat "fewer than 380" as incomplete — paper has ~390 Python repos.
+CCE_TARGET=${CCE_EXPECTED}
+[[ "${CCE_TARGET}" -ge 380 ]] || CCE_TARGET=380
+
+CCE_HAVE=$(ls "${CCE_DIR}/repositories" 2>/dev/null | wc -l)
+if [[ ! -d "${CCE_DIR}/repositories" ]] || [[ "${CCE_HAVE}" -lt "$((CCE_TARGET * 95 / 100))" ]]; then
+    echo "[data] CCE repos incomplete: ${CCE_HAVE}/${CCE_TARGET} — running clone_cce_repos.py (idempotent)"
+    "${PYBIN}" "${ROOT_DIR}/scripts/clone_cce_repos.py" || \
+        echo "[data][WARN] clone_cce_repos.py exited non-zero; continuing with what we have"
 fi
 CCE_HAVE=$(ls "${CCE_DIR}/repositories" 2>/dev/null | wc -l)
-# Re-clone if (a) repositories dir missing, or (b) we have fewer than expected
-# (allow 5% slack for repos that were deleted/renamed on GitHub).
-if [[ ! -d "${CCE_DIR}/repositories" ]] \
-   || { [[ "${CCE_EXPECTED}" -gt 0 ]] && [[ "${CCE_HAVE}" -lt "$((CCE_EXPECTED * 95 / 100))" ]]; } \
-   || { [[ "${CCE_EXPECTED}" -eq 0 ]] && [[ "${CCE_HAVE}" -lt 50 ]]; }; then
-    echo "[data] CCE repos incomplete: ${CCE_HAVE}/${CCE_EXPECTED:-?} — running clone_cce_repos.py"
-    "${PYBIN}" "${ROOT_DIR}/scripts/clone_cce_repos.py"
-fi
-CCE_HAVE=$(ls "${CCE_DIR}/repositories" 2>/dev/null | wc -l)
-echo "[data] CCE repos ready (${CCE_HAVE}/${CCE_EXPECTED:-?} cloned)"
-if [[ "${CCE_EXPECTED}" -gt 0 ]] && [[ "${CCE_HAVE}" -lt "$((CCE_EXPECTED * 95 / 100))" ]]; then
-    echo "[data][WARN] CCE still incomplete (${CCE_HAVE}/${CCE_EXPECTED})." >&2
+echo "[data] CCE repos ready (${CCE_HAVE}/${CCE_TARGET} cloned)"
+if [[ "${CCE_HAVE}" -lt "$((CCE_TARGET * 95 / 100))" ]]; then
+    echo "[data][WARN] CCE still incomplete (${CCE_HAVE}/${CCE_TARGET})." >&2
     echo "[data][WARN]   Check datasets/CrossCodeEval/clone_logs/ for failed repos." >&2
     echo "[data][WARN]   Re-run scripts/download_data.sh — clone_cce_repos.py is idempotent." >&2
 fi
