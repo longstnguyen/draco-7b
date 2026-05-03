@@ -1,26 +1,28 @@
 #!/usr/bin/env bash
-# Full paper-style evaluation on a server with conda.
-#   Step 0  Conda env (skipped if already inside one)
-#   Step 1  Pull latest code on the fix/graph-fallback branch
-#   Step 2  Backup any prior broken predictions (so they aren't overwritten)
-#   Step 3  Rebuild graphs for ReccEval + CrossCodeEval (the 2 datasets the
-#           server build silently skipped)
-#   Step 4  DraCo run on ReccEval + CCE-Python (the splits we need to re-do)
-#   Step 5  Prefix-only baseline on all 5 splits
-#   Step 6  Aggregate two SUMMARY_*.md files for side-by-side comparison
+# Full paper-style evaluation on a server.
+#   Step 0    Install deps (current python by default; USE_CONDA=1 for conda)
+#   Step 1    Pull latest code on the fix/graph-fallback branch
+#   Step 2    Backup any prior broken predictions (so they aren't overwritten)
+#   Step 2.5  download_data.sh if datasets/ is missing/empty
+#   Step 3    Rebuild graphs for ReccEval + CrossCodeEval
+#   Step 4    DraCo run on ReccEval + CCE-Python (the splits we need to re-do)
+#   Step 5    Prefix-only baseline on all 5 splits
+#   Step 6    Aggregate two SUMMARY_*.md files for side-by-side comparison
 #
 # Usage:
 #   bash scripts/run_full_paper_eval.sh
 #
 # Tunables (env vars):
-#   MODEL_REPO   default deepseek-ai/deepseek-coder-6.7b-base
-#   MODEL_KEY    default deepseekcoder6b7   (DraCo run); the prefix run gets
-#                                            "${MODEL_KEY}_prefix" automatically
-#   BATCH_SIZE   default 16  (drop to 8 for 40GB, 4 for 24GB)
-#   CONDA_ENV    default draco-eval         (only created if it doesn't exist)
-#   SKIP_DRACO   set to 1 to skip Step 4
-#   SKIP_PREFIX  set to 1 to skip Step 5
-#   SKIP_BACKUP  set to 1 to skip Step 2 (will refuse to overwrite if files exist)
+#   MODEL_REPO     default deepseek-ai/deepseek-coder-6.7b-base
+#   MODEL_KEY      default deepseekcoder6b7   (DraCo run); the prefix run gets
+#                                              "${MODEL_KEY}_prefix" automatically
+#   BATCH_SIZE     default 16  (drop to 8 for 40GB, 4 for 24GB)
+#   USE_CONDA      set to 1 to create/use conda env (default: current python)
+#   CONDA_ENV      default draco-eval (only when USE_CONDA=1)
+#   SKIP_DOWNLOAD  set to 1 to skip Step 2.5 (will abort if data missing)
+#   SKIP_DRACO     set to 1 to skip Step 4
+#   SKIP_PREFIX    set to 1 to skip Step 5
+#   SKIP_BACKUP    set to 1 to skip Step 2
 
 set -euo pipefail
 
@@ -42,10 +44,12 @@ echo "   batch_size  : ${BATCH_SIZE}"
 echo "   workdir     : ${ROOT_DIR}"
 echo "============================================================"
 
-# ---------------- Step 0: conda env ----------------
-if [[ -z "${CONDA_DEFAULT_ENV:-}" ]] || [[ "${CONDA_DEFAULT_ENV}" == "base" ]]; then
+# ---------------- Step 0: install deps ----------------
+# Default: install into the current python (matches setup_env.sh behaviour).
+# Set USE_CONDA=1 to create/use conda env ${CONDA_ENV}.
+if [[ "${USE_CONDA:-0}" == "1" ]]; then
     if ! command -v conda >/dev/null 2>&1; then
-        echo "[!] conda not found on PATH. Install miniconda first or run inside an activated env." >&2
+        echo "[!] USE_CONDA=1 but conda not on PATH." >&2
         exit 1
     fi
     # shellcheck disable=SC1091
@@ -58,7 +62,8 @@ if [[ -z "${CONDA_DEFAULT_ENV:-}" ]] || [[ "${CONDA_DEFAULT_ENV}" == "base" ]]; 
     conda activate "${CONDA_ENV}"
     bash scripts/setup_env.sh
 else
-    echo "[step0] Already inside conda env: ${CONDA_DEFAULT_ENV}; skipping create/install."
+    echo "[step0] Installing deps into current python ($(command -v python3 || command -v python))"
+    bash scripts/setup_env.sh
 fi
 
 PYBIN="${PYBIN:-$(command -v python3)}"
