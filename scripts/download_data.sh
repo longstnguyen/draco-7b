@@ -109,18 +109,40 @@ for z in line_and_api_level function_level; do
 done
 echo "[data] RepoEval ready at ${RE_DIR} ($(ls -1 "${RE_REPO_DIR}" | grep -v '^\.' | wc -l) repos)"
 
+# Helper: count unique `pkg` keys in a jsonl metadata file (zero if missing).
+_count_pkgs() {
+    local jsonl="$1"
+    [[ -f "${jsonl}" ]] || { echo 0; return; }
+    "${PYBIN}" - "${jsonl}" <<'PY'
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        print(len({json.loads(l)['pkg'] for l in f}))
+except Exception:
+    print(0)
+PY
+}
+
 # ---------------- 2) ReccEval ----------------
 REC_DIR="${DATASETS_DIR}/ReccEval"
-if [[ ! -d "${REC_DIR}/Source_Code" ]]; then
-    mkdir -p "${REC_DIR}"
+mkdir -p "${REC_DIR}"
+download "https://raw.githubusercontent.com/nju-websoft/DraCo/main/ReccEval/metadata.jsonl" \
+         "${REC_DIR}/metadata.jsonl"
+REC_EXPECTED=$(_count_pkgs "${REC_DIR}/metadata.jsonl")
+REC_HAVE=$(ls "${REC_DIR}/Source_Code" 2>/dev/null | wc -l)
+if [[ "${REC_HAVE}" -lt "${REC_EXPECTED}" ]]; then
+    echo "[data] ReccEval Source_Code incomplete: ${REC_HAVE}/${REC_EXPECTED} — (re)downloading"
+    rm -rf "${REC_DIR}/Source_Code"
     download "https://raw.githubusercontent.com/nju-websoft/DraCo/main/ReccEval/Source_Code.tar.gz" \
              "${REC_DIR}/Source_Code.tar.gz"
     extract "${REC_DIR}/Source_Code.tar.gz" "${REC_DIR}"
     rm -f "${REC_DIR}/Source_Code.tar.gz"
 fi
-download "https://raw.githubusercontent.com/nju-websoft/DraCo/main/ReccEval/metadata.jsonl" \
-         "${REC_DIR}/metadata.jsonl"
-echo "[data] ReccEval ready at ${REC_DIR}"
+REC_HAVE=$(ls "${REC_DIR}/Source_Code" 2>/dev/null | wc -l)
+echo "[data] ReccEval ready at ${REC_DIR} (${REC_HAVE}/${REC_EXPECTED} pkgs in Source_Code)"
+if [[ "${REC_HAVE}" -lt "${REC_EXPECTED}" ]]; then
+    echo "[data][WARN] ReccEval still incomplete (${REC_HAVE}/${REC_EXPECTED})." >&2
+fi
 
 # ---------------- 3) CrossCodeEval ----------------
 CCE_DIR="${DATASETS_DIR}/CrossCodeEval"
@@ -133,11 +155,38 @@ if [[ ! -f "${CCE_DIR}/python/line_completion.jsonl" ]]; then
 fi
 echo "[data] CCE precomputed jsonl ready at ${CCE_DIR}"
 
-# Clone CCE raw repos (~471 unique). DraCo needs source to build dataflow graphs.
-if [[ ! -d "${CCE_DIR}/repositories" || $(ls "${CCE_DIR}/repositories" 2>/dev/null | wc -l) -lt 50 ]]; then
-    echo "[data] Cloning CCE raw repos from GitHub (this may take ~10-15 min) ..."
+# Clone CCE raw repos. Compare against the metadata pkg count (~390 for
+# Python) — anything less means the previous clone was interrupted.
+CCE_EXPECTED=$(_count_pkgs "${CCE_DIR}/draco_line_metadata.jsonl")
+if [[ "${CCE_EXPECTED}" -eq 0 ]]; then
+    # metadata might be the upstream raw cceval line_completion.jsonl
+    CCE_EXPECTED=$("${PYBIN}" - "${CCE_DIR}/python/line_completion.jsonl" <<'PY' 2>/dev/null || echo 0
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        # cceval uses "metadata" / "repository" key
+        repos = {json.loads(l).get('metadata', {}).get('repository') or json.loads(l).get('repository','') for l in f}
+        print(len(repos - {''}))
+except Exception:
+    print(0)
+PY
+)
+fi
+CCE_HAVE=$(ls "${CCE_DIR}/repositories" 2>/dev/null | wc -l)
+# Re-clone if (a) repositories dir missing, or (b) we have fewer than expected
+# (allow 5% slack for repos that were deleted/renamed on GitHub).
+if [[ ! -d "${CCE_DIR}/repositories" ]] \
+   || { [[ "${CCE_EXPECTED}" -gt 0 ]] && [[ "${CCE_HAVE}" -lt "$((CCE_EXPECTED * 95 / 100))" ]]; } \
+   || { [[ "${CCE_EXPECTED}" -eq 0 ]] && [[ "${CCE_HAVE}" -lt 50 ]]; }; then
+    echo "[data] CCE repos incomplete: ${CCE_HAVE}/${CCE_EXPECTED:-?} — running clone_cce_repos.py"
     "${PYBIN}" "${ROOT_DIR}/scripts/clone_cce_repos.py"
 fi
-echo "[data] CCE repos ready ($(ls "${CCE_DIR}/repositories" | wc -l) cloned)"
+CCE_HAVE=$(ls "${CCE_DIR}/repositories" 2>/dev/null | wc -l)
+echo "[data] CCE repos ready (${CCE_HAVE}/${CCE_EXPECTED:-?} cloned)"
+if [[ "${CCE_EXPECTED}" -gt 0 ]] && [[ "${CCE_HAVE}" -lt "$((CCE_EXPECTED * 95 / 100))" ]]; then
+    echo "[data][WARN] CCE still incomplete (${CCE_HAVE}/${CCE_EXPECTED})." >&2
+    echo "[data][WARN]   Check datasets/CrossCodeEval/clone_logs/ for failed repos." >&2
+    echo "[data][WARN]   Re-run scripts/download_data.sh — clone_cce_repos.py is idempotent." >&2
+fi
 
 echo "[data] All datasets ready under ${DATASETS_DIR}"
